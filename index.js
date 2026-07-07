@@ -8,19 +8,24 @@ import {
 import {
   createNewWorldInfo,
   loadWorldInfo,
+  openWorldInfoEditor,
   selected_world_info,
   world_names,
 } from '../../../world-info.js';
-import { POPUP_TYPE, callGenericPopup } from '../../../popup.js';
+import { POPUP_RESULT, POPUP_TYPE, callGenericPopup } from '../../../popup.js';
 import {
   buildInjectedSelection,
+  buildWorldbookCandidateList,
+  getBindingConflict,
+  normalizeNativeChatLorebookNames,
   normalizeSourceName,
+  removeSourceName,
   readSourceState,
   replaceArrayContents,
   setSourceState,
 } from './core.mjs';
 
-const EXTENSION_NAME = '聊天世界书管理';
+const EXTENSION_NAME = '聊天世界书肋手';
 const MENU_BUTTON_ID = 'chat_lore_sources_button';
 const MENU_BADGE_ID = 'chat_lore_sources_badge';
 const STYLE_ID = 'chat_lore_sources_styles';
@@ -90,11 +95,7 @@ function getMetadata() {
 }
 
 function getNativeChatLorebookNames() {
-  const raw = getMetadata().world_info;
-  const values = Array.isArray(raw) ? raw : [raw];
-  return values
-    .map((value) => normalizeSourceName(value))
-    .filter((name) => Boolean(name));
+  return normalizeNativeChatLorebookNames(getMetadata());
 }
 
 function isNativeChatLorebookName(name) {
@@ -106,11 +107,99 @@ function listSources() {
   return readSourceState(getMetadata()).sources;
 }
 
+function listGlobalWorldbookNames() {
+  return Array.isArray(selected_world_info)
+    ? selected_world_info.map((value) => normalizeSourceName(value)).filter(Boolean)
+    : [];
+}
+
 async function writeSources(sources) {
   const written = setSourceState(getMetadata(), sources);
   await saveMetadata();
   refreshMenuButton();
   return written;
+}
+
+async function writeNativeChatLorebook(name) {
+  const sourceName = normalizeSourceName(name);
+  if (sourceName) {
+    getMetadata().world_info = sourceName;
+    $('.chat_lorebook_button').addClass('world_set');
+  } else {
+    delete getMetadata().world_info;
+    $('.chat_lorebook_button').removeClass('world_set');
+  }
+
+  await saveMetadata();
+  refreshMenuButton();
+  return sourceName;
+}
+
+function syncGlobalWorldbookSelect(names) {
+  const indexes = names
+    .map((name) => world_names.indexOf(name))
+    .filter((index) => index >= 0)
+    .map((index) => String(index));
+
+  $('#world_info').val(indexes.length ? indexes : null).trigger('change');
+}
+
+function removeGlobalWorldbook(name) {
+  const current = listGlobalWorldbookNames();
+  const next = removeSourceName(current, name);
+  if (next.length === current.length) {
+    return false;
+  }
+
+  replaceArrayContents(selected_world_info, next);
+  syncGlobalWorldbookSelect(next);
+  return true;
+}
+
+async function confirmMoveFromGlobal(sourceName) {
+  const result = await callGenericPopup(
+    `《${escapeHtml(sourceName)}》已在全局世界书启用。要从全局移除，并改为在此面板绑定吗？`,
+    POPUP_TYPE.CONFIRM,
+    '',
+    {
+      okButton: '移除并绑定',
+      cancelButton: '取消',
+    },
+  );
+
+  return result === POPUP_RESULT.AFFIRMATIVE;
+}
+
+async function prepareExtensionBinding(sourceName, targetKind) {
+  const nativeNames = getNativeChatLorebookNames();
+  const sources = listSources();
+  const globalNames = listGlobalWorldbookNames();
+  const conflict = getBindingConflict(sourceName, { nativeNames, sources, globalNames });
+
+  if (conflict === targetKind) {
+    infoToast(`已经绑定过：${sourceName}`);
+    return false;
+  }
+
+  if (conflict === 'native') {
+    infoToast(`已在原生绑定中：${sourceName}`);
+    return false;
+  }
+
+  if (conflict === 'source') {
+    infoToast(`已在额外来源中：${sourceName}`);
+    return false;
+  }
+
+  if (conflict === 'global') {
+    if (!(await confirmMoveFromGlobal(sourceName))) {
+      return false;
+    }
+
+    removeGlobalWorldbook(sourceName);
+  }
+
+  return true;
 }
 
 async function worldbookExists(name) {
@@ -146,19 +235,52 @@ async function addSource(name) {
     return false;
   }
 
-  if (isNativeChatLorebookName(sourceName)) {
-    infoToast(`已是原生聊天世界书，不需要重复添加：${sourceName}`);
-    return true;
+  if (!(await prepareExtensionBinding(sourceName, 'source'))) {
+    return false;
   }
 
   const current = listSources();
-  if (current.includes(sourceName)) {
-    infoToast(`已在当前聊天来源列表中：${sourceName}`);
-    return true;
+  await writeSources([...current, sourceName]);
+  successToast(`已添加额外来源：${sourceName}`);
+  return true;
+}
+
+async function setNativeChatLorebook(name) {
+  if (!hasActiveChat()) {
+    errorToast('当前没有活动聊天，无法设置原生绑定');
+    return false;
   }
 
-  await writeSources([...current, sourceName]);
-  successToast(`已添加来源世界书：${sourceName}`);
+  const sourceName = normalizeSourceName(name);
+  if (!sourceName) {
+    infoToast('请输入世界书名称');
+    return false;
+  }
+
+  if (!(await worldbookExists(sourceName))) {
+    warn(`原生绑定世界书不存在: ${sourceName}`);
+    errorToast(`找不到世界书：${sourceName}`);
+    return false;
+  }
+
+  if (!(await prepareExtensionBinding(sourceName, 'native'))) {
+    return false;
+  }
+
+  await writeNativeChatLorebook(sourceName);
+  successToast(`已设为原生绑定：${sourceName}`);
+  return true;
+}
+
+async function removeNativeChatLorebook(name) {
+  const sourceName = normalizeSourceName(name);
+  if (!sourceName || !isNativeChatLorebookName(sourceName)) {
+    return false;
+  }
+
+  const next = removeSourceName(getNativeChatLorebookNames(), sourceName);
+  await writeNativeChatLorebook(next[0] ?? null);
+  successToast(`已移除原生绑定：${sourceName}`);
   return true;
 }
 
@@ -228,8 +350,8 @@ async function createEmptySource(name) {
   }
 
   if (isNativeChatLorebookName(sourceName)) {
-    infoToast(`已是原生聊天世界书，不需要创建来源书：${sourceName}`);
-    return true;
+    infoToast(`已在原生绑定中：${sourceName}`);
+    return false;
   }
 
   if (await worldbookExists(sourceName)) {
@@ -256,6 +378,18 @@ async function createEmptySource(name) {
 
   successToast(`已创建空世界书：${sourceName}`);
   return await addSource(sourceName);
+}
+
+function openWorldbook(name) {
+  const sourceName = normalizeSourceName(name);
+  if (!sourceName) {
+    return;
+  }
+
+  openWorldInfoEditor(sourceName);
+  setTimeout(() => {
+    $('.popup[open] .popup-button-close').last().trigger('click');
+  }, 0);
 }
 
 async function collectValidSources(sourceNames) {
@@ -456,9 +590,16 @@ function ensureStyles() {
     }
     .cls-field-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       gap: 8px;
-      align-items: center;
+      align-items: start;
+    }
+    .cls-picker {
+      min-width: 0;
+    }
+    .cls-picker .cls-input {
+      width: 100%;
+      box-sizing: border-box;
     }
     .cls-input,
     .cls-select {
@@ -494,6 +635,37 @@ function ensureStyles() {
       background: color-mix(in srgb, var(--SmartThemeQuoteColor) 24%, var(--SmartThemeBlurTintColor));
       font-weight: 700;
     }
+    .cls-candidate-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 164px;
+      margin-top: 6px;
+      overflow-y: auto;
+      border: 1px solid var(--SmartThemeBorderColor);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 90%, #000 10%);
+    }
+    .cls-candidate-button {
+      min-height: 30px;
+      border: 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 60%, transparent);
+      padding: 6px 9px;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      overflow-wrap: anywhere;
+      cursor: pointer;
+      font-family: monospace;
+    }
+    .cls-candidate-button:last-child {
+      border-bottom: 0;
+    }
+    .cls-candidate-button:hover,
+    .cls-candidate-button:focus-visible {
+      background: color-mix(in srgb, var(--SmartThemeQuoteColor) 18%, transparent);
+      outline: none;
+    }
     .cls-list {
       display: flex;
       flex-direction: column;
@@ -524,6 +696,42 @@ function ensureStyles() {
       min-width: 0;
       overflow-wrap: anywhere;
       font-family: monospace;
+    }
+    .cls-name-button {
+      min-width: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-family: monospace;
+      text-align: left;
+      overflow-wrap: anywhere;
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+    .cls-info-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      min-width: 22px;
+      margin-left: 6px;
+      padding: 0;
+      border: 1px solid var(--SmartThemeBorderColor);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--SmartThemeQuoteColor) 18%, transparent);
+      color: inherit;
+      cursor: pointer;
+      font-size: 0.82rem;
+    }
+    .cls-title-row {
+      display: flex;
+      align-items: center;
+      gap: 2px;
     }
     .cls-pill {
       border: 1px solid var(--SmartThemeBorderColor);
@@ -605,20 +813,34 @@ function renderScanList(nativeNames, sources) {
       ${nativeNames.map((name) => `
         <div class="cls-item">
           <div class="cls-item-main">
-            <span class="cls-pill cls-pill-native">聊天绑定</span>
-            <span class="cls-item-name">${escapeHtml(name)}</span>
+            <span class="cls-pill cls-pill-native">原生绑定</span>
+            <button class="cls-name-button" type="button" data-action="open-worldbook" data-name="${escapeHtml(name)}" title="打开世界书">${escapeHtml(name)}</button>
           </div>
+          <button class="menu_button" type="button" data-action="remove-native" data-name="${escapeHtml(name)}">移除</button>
         </div>
       `).join('')}
       ${sources.map((name) => `
         <div class="cls-item">
           <div class="cls-item-main">
-            <span class="cls-pill cls-pill-source">来源</span>
-            <span class="cls-item-name">${escapeHtml(name)}</span>
+            <span class="cls-pill cls-pill-source">额外来源</span>
+            <button class="cls-name-button" type="button" data-action="open-worldbook" data-name="${escapeHtml(name)}" title="打开世界书">${escapeHtml(name)}</button>
           </div>
           <button class="menu_button" type="button" data-action="remove-source" data-name="${escapeHtml(name)}">移除</button>
         </div>
       `).join('')}
+    </div>
+  `;
+}
+
+function renderCandidateList(candidates, query) {
+  const visibleCandidates = buildWorldbookCandidateList(candidates, query, 8);
+  if (!visibleCandidates.length) {
+    return '';
+  }
+
+  return `
+    <div class="cls-candidate-list" role="listbox" aria-label="可选世界书">
+      ${visibleCandidates.map((name) => `<button class="cls-candidate-button" type="button" role="option" data-action="select-candidate" data-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join('')}
     </div>
   `;
 }
@@ -628,19 +850,20 @@ function createPanel() {
 
   const root = $('<div class="cls-panel"></div>');
   let sourceQuery = '';
+  let currentCandidates = [];
 
   const render = async () => {
     const sources = listSources();
     const nativeNames = getNativeChatLorebookNames();
     const scanCount = nativeNames.length + sources.length;
     const missing = await getMissingSources();
-    const candidates = getAvailableWorldbookNames()
+    currentCandidates = getAvailableWorldbookNames()
       .filter((name) => !sources.includes(name) && !nativeNames.includes(name));
 
     root.html(`
       <section class="cls-hero">
         <div class="cls-header">
-          <div class="cls-title cls-main-title">聊天世界书管理</div>
+          <div class="cls-title cls-main-title">聊天世界书肋手</div>
           <div class="cls-summary" aria-label="当前聊天世界书数量">
             <div class="cls-summary-item">
               <div class="cls-summary-value">${scanCount}</div>
@@ -648,7 +871,7 @@ function createPanel() {
             </div>
             <div class="cls-summary-item">
               <div class="cls-summary-value">${nativeNames.length}</div>
-              <div class="cls-summary-label">聊天绑定</div>
+              <div class="cls-summary-label">原生绑定</div>
             </div>
             <div class="cls-summary-item">
               <div class="cls-summary-value">${sources.length}</div>
@@ -662,7 +885,10 @@ function createPanel() {
       <section class="cls-section">
         <div class="cls-section-head">
           <div>
-            <div class="cls-title">扫描列表</div>
+            <div class="cls-title-row">
+              <div class="cls-title">扫描列表</div>
+              <button class="cls-info-button fa-solid fa-info" type="button" data-action="show-info" aria-label="说明" title="原生绑定 / 额外来源说明"></button>
+            </div>
           </div>
           ${sources.length ? '<button class="menu_button cls-danger-button" type="button" data-action="clear-sources">清空来源</button>' : ''}
         </div>
@@ -680,11 +906,12 @@ function createPanel() {
           <div class="cls-form-group">
             <label class="cls-label" for="cls_source_search">世界书名称</label>
             <div class="cls-field-row">
-              <input class="cls-input" id="cls_source_search" type="search" list="cls_worldbook_candidates" placeholder="选择或输入名称" value="${escapeHtml(sourceQuery)}" autocomplete="off">
-              <datalist id="cls_worldbook_candidates">
-                ${candidates.map((name) => `<option value="${escapeHtml(name)}"></option>`).join('')}
-              </datalist>
-              <button class="menu_button cls-primary-button" type="button" data-action="add-source-query">添加</button>
+              <div class="cls-picker">
+                <input class="cls-input" id="cls_source_search" type="text" placeholder="输入筛选，或点下方名称" value="${escapeHtml(sourceQuery)}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-np-ignore="true" data-lpignore="true" data-1p-ignore="true" data-form-type="other" aria-autocomplete="list">
+                <div class="cls-candidate-slot">${renderCandidateList(currentCandidates, sourceQuery)}</div>
+              </div>
+              <button class="menu_button cls-primary-button" type="button" data-action="set-native-query">设为原生</button>
+              <button class="menu_button" type="button" data-action="add-source-query">加为来源</button>
               <button class="menu_button" type="button" data-action="create-source-query">新建空书</button>
             </div>
           </div>
@@ -695,6 +922,7 @@ function createPanel() {
 
   root.on('input', '#cls_source_search', function () {
     sourceQuery = String($(this).val() ?? '');
+    root.find('.cls-candidate-slot').html(renderCandidateList(currentCandidates, sourceQuery));
   });
 
   root.on('keydown', '#cls_source_search', async function (event) {
@@ -704,6 +932,34 @@ function createPanel() {
 
     event.preventDefault();
     if (await addSource(sourceQuery)) {
+      sourceQuery = '';
+      await render();
+    }
+  });
+
+  root.on('click', '[data-action="select-candidate"]', async function () {
+    sourceQuery = String($(this).attr('data-name') ?? '');
+    await render();
+    const input = root.find('#cls_source_search');
+    input.trigger('focus');
+    input[0]?.setSelectionRange?.(sourceQuery.length, sourceQuery.length);
+  });
+
+  root.on('click', '[data-action="show-info"]', async () => {
+    await callGenericPopup(
+      '<div class="cls-muted"><b>原生绑定</b>：SillyTavern 自带的聊天世界书绑定。<br><b>额外来源</b>：本扩展在生成前临时加入扫描的世界书。</div>',
+      POPUP_TYPE.TEXT,
+      '',
+      { okButton: '知道了' },
+    );
+  });
+
+  root.on('click', '[data-action="open-worldbook"]', function () {
+    openWorldbook($(this).attr('data-name'));
+  });
+
+  root.on('click', '[data-action="set-native-query"]', async () => {
+    if (await setNativeChatLorebook(sourceQuery)) {
       sourceQuery = '';
       await render();
     }
@@ -726,6 +982,12 @@ function createPanel() {
   root.on('click', '[data-action="remove-source"]', async function () {
     const name = $(this).attr('data-name');
     await removeSource(name);
+    await render();
+  });
+
+  root.on('click', '[data-action="remove-native"]', async function () {
+    const name = $(this).attr('data-name');
+    await removeNativeChatLorebook(name);
     await render();
   });
 
@@ -785,8 +1047,8 @@ function ensureMenuButton(reason = 'unknown') {
   const button = $(`
     <div id="${MENU_BUTTON_ID}" class="list-group-item">
       <div style="display:flex; align-items:center; gap:8px; width:100%;">
-        <div class="fa-solid fa-book-open extensionsMenuExtensionButton" title="聊天世界书管理"></div>
-        <span style="flex:1 1 auto; min-width:0;">聊天世界书管理</span>
+        <div class="fa-solid fa-book-open extensionsMenuExtensionButton" title="聊天世界书肋手"></div>
+        <span style="flex:1 1 auto; min-width:0;">聊天世界书肋手</span>
         <span id="${MENU_BADGE_ID}">0</span>
       </div>
     </div>
@@ -841,6 +1103,8 @@ function exposePublicInterface() {
   globalThis.ChatLoreSources = {
     list: listSources,
     add: addSource,
+    setNative: setNativeChatLorebook,
+    removeNative: removeNativeChatLorebook,
     create: createEmptySource,
     remove: removeSource,
     clear: clearSources,

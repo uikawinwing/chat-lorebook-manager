@@ -23,6 +23,11 @@ export function normalizeSourceList(values) {
   return result;
 }
 
+export function normalizeNativeChatLorebookNames(metadata) {
+  const raw = metadata?.world_info;
+  return normalizeSourceList(Array.isArray(raw) ? raw : [raw]);
+}
+
 export function readSourceState(metadata) {
   const raw = metadata?.[SOURCE_METADATA_KEY];
   const updatedAt = Number.isFinite(Number(raw?.updatedAt)) ? Number(raw.updatedAt) : 0;
@@ -59,6 +64,47 @@ export function clearSourceState(metadata) {
   if (metadata && typeof metadata === 'object') {
     delete metadata[SOURCE_METADATA_KEY];
   }
+}
+
+export function getBindingConflict(name, { nativeNames = [], sources = [], globalNames = [] } = {}) {
+  const sourceName = normalizeSourceName(name);
+  if (!sourceName) {
+    return null;
+  }
+
+  if (normalizeSourceList(nativeNames).includes(sourceName)) {
+    return 'native';
+  }
+
+  if (normalizeSourceList(sources).includes(sourceName)) {
+    return 'source';
+  }
+
+  if (normalizeSourceList(globalNames).includes(sourceName)) {
+    return 'global';
+  }
+
+  return null;
+}
+
+export function removeSourceName(values, name) {
+  const sourceName = normalizeSourceName(name);
+  return normalizeSourceList(values).filter((value) => value !== sourceName);
+}
+
+export function buildWorldbookCandidateList(names, query = '', limit = 8) {
+  const normalizedQuery = String(query ?? '').trim().toLowerCase();
+  const normalizedLimit = Math.max(0, Number(limit) || 0);
+
+  return normalizeSourceList(names)
+    .filter((name) => {
+      if (normalizedQuery && name.toLowerCase() === normalizedQuery) {
+        return false;
+      }
+
+      return !normalizedQuery || name.toLowerCase().includes(normalizedQuery);
+    })
+    .slice(0, normalizedLimit);
 }
 
 export function buildInjectedSelection(snapshot, sources, excludedSources = []) {
