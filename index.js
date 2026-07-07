@@ -25,7 +25,7 @@ import {
   setSourceState,
 } from './core.mjs';
 
-const EXTENSION_NAME = '聊天世界书肋手';
+const EXTENSION_NAME = '聊天世界书助手';
 const MENU_BUTTON_ID = 'chat_lore_sources_button';
 const MENU_BADGE_ID = 'chat_lore_sources_badge';
 const STYLE_ID = 'chat_lore_sources_styles';
@@ -863,7 +863,7 @@ function createPanel() {
     root.html(`
       <section class="cls-hero">
         <div class="cls-header">
-          <div class="cls-title cls-main-title">聊天世界书肋手</div>
+          <div class="cls-title cls-main-title">聊天世界书助手</div>
           <div class="cls-summary" aria-label="当前聊天世界书数量">
             <div class="cls-summary-item">
               <div class="cls-summary-value">${scanCount}</div>
@@ -1047,8 +1047,8 @@ function ensureMenuButton(reason = 'unknown') {
   const button = $(`
     <div id="${MENU_BUTTON_ID}" class="list-group-item">
       <div style="display:flex; align-items:center; gap:8px; width:100%;">
-        <div class="fa-solid fa-book-open extensionsMenuExtensionButton" title="聊天世界书肋手"></div>
-        <span style="flex:1 1 auto; min-width:0;">聊天世界书肋手</span>
+        <div class="fa-solid fa-book-open extensionsMenuExtensionButton" title="聊天世界书助手"></div>
+        <span style="flex:1 1 auto; min-width:0;">聊天世界书助手</span>
         <span id="${MENU_BADGE_ID}">0</span>
       </div>
     </div>

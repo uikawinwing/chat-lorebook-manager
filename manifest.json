@@ -1,10 +1,10 @@
 {
-  "name": "chat-lorebook-management",
-  "display_name": "聊天世界书管理",
+  "name": "chat-lorebook-manager",
+  "display_name": "聊天世界书助手",
   "loading_order": 200,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "author": "uikawinwing",
-  "version": "1.0.1"
+  "version": "1.0.2"
 }
