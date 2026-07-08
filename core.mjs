@@ -97,13 +97,7 @@ export function buildWorldbookCandidateList(names, query = '', limit = 8) {
   const normalizedLimit = Math.max(0, Number(limit) || 0);
 
   return normalizeSourceList(names)
-    .filter((name) => {
-      if (normalizedQuery && name.toLowerCase() === normalizedQuery) {
-        return false;
-      }
-
-      return !normalizedQuery || name.toLowerCase().includes(normalizedQuery);
-    })
+    .filter((name) => !normalizedQuery || name.toLowerCase().includes(normalizedQuery))
     .slice(0, normalizedLimit);
 }
 

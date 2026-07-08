@@ -524,7 +524,7 @@ function ensureStyles() {
       display: flex;
       flex-direction: column;
       gap: 18px;
-      width: min(760px, calc(100vw - 72px));
+      width: min(1280px, calc(100vw - 96px));
       max-width: 100%;
       margin: 0 auto;
       box-sizing: border-box;
@@ -590,7 +590,7 @@ function ensureStyles() {
     }
     .cls-field-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      grid-template-columns: minmax(420px, 1fr) auto auto auto;
       gap: 8px;
       align-items: start;
     }
@@ -639,7 +639,7 @@ function ensureStyles() {
       display: flex;
       flex-direction: column;
       gap: 2px;
-      max-height: 164px;
+      max-height: min(560px, 58vh);
       margin-top: 6px;
       overflow-y: auto;
       border: 1px solid var(--SmartThemeBorderColor);
@@ -833,7 +833,8 @@ function renderScanList(nativeNames, sources) {
 }
 
 function renderCandidateList(candidates, query) {
-  const visibleCandidates = buildWorldbookCandidateList(candidates, query, 8);
+  const trimmedQuery = String(query ?? '').trim();
+  const visibleCandidates = buildWorldbookCandidateList(candidates, trimmedQuery, candidates.length);
   if (!visibleCandidates.length) {
     return '';
   }

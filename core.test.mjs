@@ -127,10 +127,10 @@ test('buildWorldbookCandidateList filters by query and caps visible options', ()
   assert.deepEqual(result, ['Alpha', 'alphabet']);
 });
 
-test('buildWorldbookCandidateList keeps an exact typed value out of suggestions', () => {
+test('buildWorldbookCandidateList keeps an exact typed value visible', () => {
   const result = buildWorldbookCandidateList(['Hilo', 'Hilo extra'], 'Hilo', 8);
 
-  assert.deepEqual(result, ['Hilo extra']);
+  assert.deepEqual(result, ['Hilo', 'Hilo extra']);
 });
 
 test('replaceArrayContents mutates the original array reference', () => {
